@@ -29,6 +29,7 @@ bool recv_all(int socket, void* data, size_t size) {
 }
 
 int main() {
+    bool running = 1;
     int serial = open(SERIAL_DEVICE, O_RDWR|O_NOCTTY);
     if (serial<0) { printf("FAILED OPENING /dev/ttyACM0\n"); return 1; }
     termios tty{};
@@ -73,7 +74,7 @@ int main() {
     int client_socket = accept(server_socket, reinterpret_cast<sockaddr*>(&client_address), &client_length);
     if (client_socket<0) { perror("accept"); close(server_socket); return 1; } 
 
-    while (1) { 
+    while (running) { 
         struct sockaddr_in client_address; 
         socklen_t client_length = sizeof(client_address); 
         int client = accept(server_socket, reinterpret_cast<struct sockaddr*>(&client_address), &client_length); 
@@ -81,9 +82,9 @@ int main() {
         printf("CLIENT CONNECTED\n"); 
         while (1) { 
             uint8_t packet[3]; 
-            if (!recv_all(client, packet, sizeof(packet))) { printf("Client disconnected\n"); break; }
+            if (!recv_all(client, packet, sizeof(packet))) { printf("Client disconnected\n"); running = 0; break; }
             ssize_t written = write(serial, packet, sizeof(packet)); 
-            if (written!=sizeof(packet)) { perror("write serial"); break; } 
+            if (written!=sizeof(packet)) { perror("write serial"); running = 0; break; } 
         } close(client); 
     } 
     

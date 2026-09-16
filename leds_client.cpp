@@ -5,7 +5,11 @@
 #include <SDL2/SDL.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <cstdlib>
 #include <unistd.h>
+#include <thread>
+#include <chrono>
+#include <netdb.h>
 
 #define SERVER_PORT 5000
 
@@ -49,6 +53,7 @@ void update() {
 
     SDL_RenderPresent(renderer);
 }
+
 uint32_t hsv_to_rgb(float h, float s, float v) {
     h = h-floor(h);
     float r, g, b;
@@ -72,6 +77,7 @@ uint32_t hsv_to_rgb(float h, float s, float v) {
 
     return (R<<24)|(G<<16)|(B<<8)|0xFF;
 }
+
 uint32_t calculate_color(uint16_t x, uint16_t y) {
     float dx = x-250; float dy = y-250;
     float distance = sqrt(dx*dx+dy*dy);
@@ -84,6 +90,7 @@ uint32_t calculate_color(uint16_t x, uint16_t y) {
         return color;
     } return 0x00000000;
 }
+
 void draw_palette() {
     SDL_LockSurface(palette);
     Uint32* pixelData = static_cast<Uint32*>(palette->pixels);
@@ -105,10 +112,12 @@ void draw_brightness_bar() {
         }
     } SDL_UnlockSurface(brightnessBar);
 }
-int main(int argc, char** argv) {
-    if (argc!=2) { printf("USAGE: %s <IP>\n", argv[0]); return 1; }
-    const char* raspberry_ip = argv[1];
-    
+
+int main() {
+    const char* raspberry_ip = "raspberrypi.local";
+    system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"leds > /dev/null 2>&1 &\"").c_str());
+    this_thread::sleep_for(chrono::milliseconds(2000));
+
     SDL_Init(SDL_INIT_VIDEO);
     window = SDL_CreateWindow("LIGHTS", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 950, 800, SDL_WINDOW_SHOWN);
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
@@ -117,14 +126,27 @@ int main(int argc, char** argv) {
     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd<0) { perror("socket"); return 1; }
     
-    struct sockaddr_in server;
-    server.sin_family = AF_INET;
-    server.sin_port = htons(SERVER_PORT);
+    struct addrinfo hints;
+    struct addrinfo* result;
 
-    if (inet_pton(AF_INET, raspberry_ip, &server.sin_addr)<=0) {
-        perror("inet_pton"); close(socket_fd); return 1;
-    } if (connect(socket_fd, reinterpret_cast<struct sockaddr*>(&server), sizeof(server))<0) { perror("connect"); close(socket_fd); return 1; }
-    
+    memset(&hints, 0, sizeof(hints));
+
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    int status = getaddrinfo(raspberry_ip, nullptr, &hints, &result);
+
+    if (status!=0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+        close(socket_fd); return 1;
+    }
+
+    struct sockaddr_in* server = reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
+    server->sin_port = htons(SERVER_PORT);
+    if (connect(socket_fd, result->ai_addr, result->ai_addrlen)<0) {perror("connect");
+        freeaddrinfo(result);
+        close(socket_fd); return 1;
+    } freeaddrinfo(result);
+
     palette = SDL_CreateRGBSurfaceWithFormat(0, 500, 500, 32, SDL_PIXELFORMAT_RGBA32);
     if (!palette) { SDL_Log("ERROR: %s", SDL_GetError()); }
     draw_palette();

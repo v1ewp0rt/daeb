@@ -11,8 +11,13 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <thread>
+#include <chrono>
+#include <netdb.h>
 
-#define PORT 5000
+#define SERVER_PORT 5000
+
+using namespace std;
 
 bool recv_all(int socket, void* data, size_t size) {
     char* buffer = static_cast<char*>(data);
@@ -29,7 +34,7 @@ bool send_command(int socket, char command) {
     return sent==1; 
 }
 
-void receive_frames(int socket, cv::Mat& frame, std::mutex& frame_mutex, bool& connected) {
+void receive_frames(int socket, cv::Mat& frame, mutex& frame_mutex, bool& connected) {
     while (connected) {
         uint32_t network_size = 0;
         if (!recv_all(socket, &network_size, sizeof(network_size))) { connected = 0; break; }
@@ -39,37 +44,43 @@ void receive_frames(int socket, cv::Mat& frame, std::mutex& frame_mutex, bool& c
             connected = 0; break;
         }
 
-        std::vector<uchar> jpeg(jpeg_size);
+        vector<uchar> jpeg(jpeg_size);
         if (!recv_all(socket, jpeg.data(), jpeg.size())) { connected = 0; break; }
         cv::Mat decoded = cv::imdecode(jpeg, cv::IMREAD_COLOR);
         if (decoded.empty()) { continue; }
-        { std::lock_guard<std::mutex> lock(frame_mutex); frame = decoded; }
+        { lock_guard<mutex> lock(frame_mutex); frame = decoded; }
     }
 }
 
-int main(int argc, char** argv) {
-    if (argc!=2) {
-        printf("USAGE: %s <IP>\n", argv[0]);
-        return 1;
-    }
-
-    const char* raspberry_ip = argv[1];
+int main() {
+    const char* raspberry_ip = "raspberrypi.local";
+    system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"vision > /dev/null 2>&1 &\"").c_str());
+    this_thread::sleep_for(chrono::milliseconds(2000));
 
     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd<0) { perror("socket"); return 1; }
-    
-    sockaddr_in server_address{};
-    server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(PORT);
 
-    if (inet_pton(AF_INET, raspberry_ip, &server_address.sin_addr)<=0) {
-        printf("INVALID IP ADDRESS: %s\n", raspberry_ip);
+    struct addrinfo hints;
+    struct addrinfo* result;
+
+    memset(&hints, 0, sizeof(hints));
+
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    int status = getaddrinfo(raspberry_ip, nullptr, &hints, &result);
+
+    if (status!=0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
         close(socket_fd); return 1;
-    } printf("CONNECTING TO %s:%d...\n", raspberry_ip, PORT);
+    }
 
-    if (connect(socket_fd, reinterpret_cast<sockaddr*>(&server_address), sizeof(server_address))<0) {
-        perror("connect"); close(socket_fd); return 1;
-    } printf("CONNECTED\n");
+    struct sockaddr_in* server = reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
+    server->sin_port = htons(SERVER_PORT);
+    if (connect(socket_fd, result->ai_addr, result->ai_addrlen)<0) {perror("connect");
+        freeaddrinfo(result);
+        close(socket_fd); return 1;
+    } freeaddrinfo(result);
+    printf("CONNECTED\n");
 
     if (SDL_Init(SDL_INIT_VIDEO)!=0) {
         printf("SDL_Init: %s\n", SDL_GetError());
@@ -91,9 +102,9 @@ int main(int argc, char** argv) {
     }
 
     cv::Mat frame;
-    std::mutex frame_mutex;
+    mutex frame_mutex;
     bool connected = true;
-    std::thread network_thread(receive_frames, socket_fd, std::ref(frame), std::ref(frame_mutex), std::ref(connected));
+    thread network_thread(receive_frames, socket_fd, ref(frame), ref(frame_mutex), ref(connected));
     SDL_Texture* texture = nullptr;
     bool running = 1;
 
@@ -118,7 +129,7 @@ int main(int argc, char** argv) {
         }
 
         cv::Mat current_frame;
-        { std::lock_guard<std::mutex> lock(frame_mutex);
+        { lock_guard<mutex> lock(frame_mutex);
             if (!frame.empty()) { current_frame = frame.clone(); }
         }
 
