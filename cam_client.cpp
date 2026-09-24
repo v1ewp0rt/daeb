@@ -11,7 +11,6 @@
 #include <mutex>
 #include <thread>
 #include <vector>
-#include <thread>
 #include <chrono>
 #include <netdb.h>
 
@@ -55,10 +54,13 @@ void receive_frames(int socket, cv::Mat& frame, mutex& frame_mutex, bool& connec
 int main() {
     const char* raspberry_ip = "raspberrypi.local";
     system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"vision > /dev/null 2>&1 &\"").c_str());
-    this_thread::sleep_for(chrono::milliseconds(2000));
+    this_thread::sleep_for(chrono::milliseconds(2500));
 
     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (socket_fd<0) { perror("socket"); return 1; }
+    if (socket_fd<0) { 
+        system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill vision\"").c_str());
+        perror("socket"); return 1; 
+    }
 
     struct addrinfo hints;
     struct addrinfo* result;
@@ -71,6 +73,7 @@ int main() {
 
     if (status!=0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+        system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill vision\"").c_str());
         close(socket_fd); return 1;
     }
 
@@ -78,12 +81,14 @@ int main() {
     server->sin_port = htons(SERVER_PORT);
     if (connect(socket_fd, result->ai_addr, result->ai_addrlen)<0) {perror("connect");
         freeaddrinfo(result);
+        system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill vision\"").c_str());
         close(socket_fd); return 1;
     } freeaddrinfo(result);
     printf("CONNECTED\n");
 
     if (SDL_Init(SDL_INIT_VIDEO)!=0) {
         printf("SDL_Init: %s\n", SDL_GetError());
+        system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill vision\"").c_str());
         close(socket_fd); return 1;
     }
 
@@ -91,6 +96,7 @@ int main() {
 
     if (!window) {
         printf("SDL_CreateWindow: %s\n", SDL_GetError());
+        system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill vision\"").c_str());
         SDL_Quit(); close(socket_fd); return 1;
     }
 
@@ -98,12 +104,13 @@ int main() {
     if (!renderer) {
         printf("SDL_CreateRenderer: %s\n", SDL_GetError());
         SDL_DestroyWindow(window); SDL_Quit();
+        system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill vision\"").c_str());
         close(socket_fd); return 1;
     }
 
     cv::Mat frame;
     mutex frame_mutex;
-    bool connected = true;
+    bool connected = 1;
     thread network_thread(receive_frames, socket_fd, ref(frame), ref(frame_mutex), ref(connected));
     SDL_Texture* texture = nullptr;
     bool running = 1;
@@ -121,7 +128,7 @@ int main() {
                 if (event.key.keysym.sym==SDLK_d) { command = 'D'; }
 
                 if (command!=0) { 
-                    if (!send_command( socket_fd, command)) { 
+                    if (!send_command( socket_fd, command)) {
                         printf( "FAILED TO SEND COMMAND\n" ); connected = 0; running = 0; 
                     } 
                 }
@@ -151,6 +158,7 @@ int main() {
     }
 
     connected = 0;
+    system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill vision\"").c_str());
     shutdown(socket_fd, SHUT_RDWR);
     if (network_thread.joinable()) { network_thread.join(); }
     if (texture) { SDL_DestroyTexture(texture); }

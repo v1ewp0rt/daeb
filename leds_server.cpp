@@ -66,13 +66,7 @@ int main() {
 
     if (bind(server_socket, reinterpret_cast<sockaddr*>(&address), sizeof(address))<0) { perror("bind"); close(server_socket); return 1; }
     if (listen(server_socket, 1)<0) { perror("listen"); close(server_socket); return 1; }
-
     printf("SERVER LISTENING IN PORT %d...\n", PORT);
-    sockaddr_in client_address{};
-    socklen_t client_length = sizeof(client_address);
-
-    int client_socket = accept(server_socket, reinterpret_cast<sockaddr*>(&client_address), &client_length);
-    if (client_socket<0) { perror("accept"); close(server_socket); return 1; } 
 
     while (running) { 
         struct sockaddr_in client_address; 

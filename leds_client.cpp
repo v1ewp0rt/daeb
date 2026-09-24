@@ -116,7 +116,7 @@ void draw_brightness_bar() {
 int main() {
     const char* raspberry_ip = "raspberrypi.local";
     system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"leds > /dev/null 2>&1 &\"").c_str());
-    this_thread::sleep_for(chrono::milliseconds(2000));
+    this_thread::sleep_for(chrono::milliseconds(1000));
 
     SDL_Init(SDL_INIT_VIDEO);
     window = SDL_CreateWindow("LIGHTS", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 950, 800, SDL_WINDOW_SHOWN);
@@ -124,7 +124,10 @@ int main() {
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (socket_fd<0) { perror("socket"); return 1; }
+    if (socket_fd<0) { 
+        system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill leds\"").c_str());
+        perror("socket"); return 1; 
+    }
     
     struct addrinfo hints;
     struct addrinfo* result;
@@ -137,6 +140,7 @@ int main() {
 
     if (status!=0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+        system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill leds\"").c_str());
         close(socket_fd); return 1;
     }
 
@@ -144,6 +148,7 @@ int main() {
     server->sin_port = htons(SERVER_PORT);
     if (connect(socket_fd, result->ai_addr, result->ai_addrlen)<0) {perror("connect");
         freeaddrinfo(result);
+        system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill leds\"").c_str());
         close(socket_fd); return 1;
     } freeaddrinfo(result);
 
@@ -188,7 +193,10 @@ int main() {
                 uint8_t packet[] { r, g, b };
                 ssize_t sent = send(socket_fd, packet, sizeof(packet), 0);
 
-                if (sent!=sizeof(packet)) { perror("send"); close(socket_fd); return 1; }
+                if (sent!=sizeof(packet)) { 
+                    system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill leds\"").c_str());
+                    perror("send"); close(socket_fd); return 1; 
+                }
             }
         }
 
@@ -206,13 +214,17 @@ int main() {
             uint8_t packet[] { r, g, b };
             ssize_t sent = send(socket_fd, packet, sizeof(packet), 0);
 
-            if (sent!=sizeof(packet)) { perror("send"); close(socket_fd); return 1; }
+            if (sent!=sizeof(packet)) {
+                system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill leds\"").c_str());
+                perror("send"); close(socket_fd); return 1; 
+            }
         }
 
         uint64_t timeElapsed = SDL_GetTicks()-frameStart;
         if (timeElapsed<frameTime) { SDL_Delay(frameTime-timeElapsed); }
     }
 
+    system(string("ssh -i ~/.ssh/daeb_rsa_key viewport@"+string(raspberry_ip)+" \"pkill leds\"").c_str());
     close(socket_fd);
     SDL_DestroyWindow(window);
     SDL_DestroyRenderer(renderer);
